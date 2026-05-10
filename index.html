@@ -1,51 +1,39 @@
 <!DOCTYPE html>
-<!--
-  =====================================================================
-  Практическое занятие №13. Service Worker. Офлайн-приложение «Заметки»
-  =====================================================================
 
-  Этот HTML-файл — «оболочка» (shell) приложения. Именно его
-  Service Worker положит в кэш на этапе install. Когда сети нет,
-  браузер достанет index.html прямо из кэша, а не из сервера.
-
-  Что важно понимать про SW и HTML:
-  1. Service Worker НЕ имеет доступа к DOM — он живёт в отдельном
-     потоке (ServiceWorkerGlobalScope). Поэтому весь UI делает
-     обычный JS на странице (app.js).
-  2. SW регистрируется тегом <script>, который грузит app.js.
-  3. Чтобы SW заработал, страница должна быть отдана через HTTP/HTTPS,
-     а не через протокол file://. Локально подойдёт http-server / live-server.
--->
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <!--
-      Viewport для адаптивности на мобильных устройствах.
-      Service Worker — ключевой компонент PWA, поэтому привычка
-      сразу указывать viewport полезна.
-    -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Заметки — Service Worker (практика 13)</title>
 
-    <!--
-      Подключаем Chota — лёгкий CSS-фреймворк (1 файл).
-      ВАЖНО: ресурсы с CDN по умолчанию НЕ кэшируются нашим Service Worker,
-      потому что мы кэшируем только файлы из массива ASSETS в sw.js.
-      Если хотите, чтобы стили работали офлайн — добавьте этот URL
-      в ASSETS (с учётом cross-origin требований: response.type === 'cors').
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заметки — PWA (практика 13–14)</title>
+
+      <link rel="manifest"> — главная связь между HTML и manifest.json.
+      Браузер прочитает этот JSON и узнает: имя приложения, иконки,
+      цвета, режим запуска. Без этой строки PWA «не соберётся»,
+      даже если manifest.json существует.
     -->
+    <link rel="manifest" href="./manifest.json">
+
+    <meta name="theme-color" content="#4285f4">
+
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <meta name="apple-mobile-web-app-title" content="Заметки">
+
+    <link rel="apple-touch-icon" href="./icons/icon-152x152.png">
+
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/icon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="./icons/icon-16x16.png">
+
     <link rel="stylesheet" href="https://unpkg.com/chota@latest">
 
-    <!--
-      Минимальные локальные стили: подсветка карточки, индикатор сети.
-      Inline-стили лежат прямо в HTML, чтобы офлайн-загрузка из кэша
-      выглядела точно так же, как онлайн (никаких отдельных запросов).
-    -->
     <style>
         body { padding: 24px; }
         h1 { margin-bottom: 8px; }
 
-        /* Индикатор подключения к сети (online/offline) */
         #network-status {
             display: inline-block;
             padding: 4px 10px;
@@ -56,7 +44,6 @@
         #network-status.online  { background: #d4edda; color: #155724; }
         #network-status.offline { background: #f8d7da; color: #721c24; }
 
-        /* Список заметок */
         #notes-list { list-style: none; padding: 0; }
         #notes-list li {
             background: #f7f7f7;
@@ -70,7 +57,6 @@
         }
         #notes-list li .meta { color: #888; font-size: 0.8rem; }
 
-        /* Кнопка удаления внутри заметки */
         .delete-btn {
             background: transparent;
             border: 1px solid #c00;
@@ -86,22 +72,11 @@
 <body>
     <h1>Заметки — офлайн-приложение</h1>
 
-    <!--
-      Индикатор сети. JS меняет текст и класс по событиям online / offline.
-      Это демонстрирует студенту, что приложение «знает» про офлайн.
-    -->
     <p>
         Состояние сети:
         <span id="network-status" class="online">проверяется…</span>
     </p>
 
-    <!--
-      Форма добавления заметки.
-      - id="note-form" — на него вешаем submit-обработчик.
-      - <input required> — простая HTML5-валидация (нельзя отправить пустую заметку).
-      - autocomplete="off" — чтобы браузер не подставлял старые значения и
-        не «портил» демонстрацию.
-    -->
     <form id="note-form" class="row" autocomplete="off">
         <input
             class="col-9"
@@ -113,14 +88,9 @@
         <button class="col-3" type="submit">Добавить</button>
     </form>
 
-    <!-- Сюда JS отрисовывает заметки. Изначально пусто. -->
+
     <ul id="notes-list"></ul>
 
-    <!--
-      Пояснение для студента (видно прямо на странице — удобно для отчёта).
-      Подскажет, как проверить работу Service Worker:
-        DevTools (F12) → Application → Service Workers / Cache Storage.
-    -->
     <details style="margin-top: 24px;">
         <summary>Как проверить, что Service Worker работает</summary>
         <ol>
@@ -137,13 +107,6 @@
         </ol>
     </details>
 
-    <!--
-      Подключение основного скрипта.
-      Загружается ПОСЛЕ разметки, чтобы document.getElementById сразу нашёл элементы.
-      Вместо этого можно было бы добавить атрибут defer:
-          <script src="app.js" defer></script>
-      и вынести тег в <head>.
-    -->
     <script src="app.js"></script>
 </body>
 </html>
