@@ -1,0 +1,10 @@
+{
+  "name": "notes-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Практика 13: офлайн-приложение «Заметки» с Service Worker",
+  "scripts": {
+    "//-start": "Запускает локальный HTTP-сервер на порту 5173. Service Worker не работает на file://, поэтому без HTTP не обойтись. Флаг -c-1 отключает HTTP-кеш самого сервера, чтобы он не мешал нашему собственному кэшированию через SW.",
+    "start": "npx --yes http-server . -p 5173 -c-1 -o"
+  }
+}

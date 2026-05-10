@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<!--
+  =====================================================================
+  Практическое занятие №13. Service Worker. Офлайн-приложение «Заметки»
+  =====================================================================
+
+  Этот HTML-файл — «оболочка» (shell) приложения. Именно его
+  Service Worker положит в кэш на этапе install. Когда сети нет,
+  браузер достанет index.html прямо из кэша, а не из сервера.
+
+  Что важно понимать про SW и HTML:
+  1. Service Worker НЕ имеет доступа к DOM — он живёт в отдельном
+     потоке (ServiceWorkerGlobalScope). Поэтому весь UI делает
+     обычный JS на странице (app.js).
+  2. SW регистрируется тегом <script>, который грузит app.js.
+  3. Чтобы SW заработал, страница должна быть отдана через HTTP/HTTPS,
+     а не через протокол file://. Локально подойдёт http-server / live-server.
+-->
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <!--
+      Viewport для адаптивности на мобильных устройствах.
+      Service Worker — ключевой компонент PWA, поэтому привычка
+      сразу указывать viewport полезна.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заметки — Service Worker (практика 13)</title>
+
+    <!--
+      Подключаем Chota — лёгкий CSS-фреймворк (1 файл).
+      ВАЖНО: ресурсы с CDN по умолчанию НЕ кэшируются нашим Service Worker,
+      потому что мы кэшируем только файлы из массива ASSETS в sw.js.
+      Если хотите, чтобы стили работали офлайн — добавьте этот URL
+      в ASSETS (с учётом cross-origin требований: response.type === 'cors').
+    -->
+    <link rel="stylesheet" href="https://unpkg.com/chota@latest">
+
+    <!--
+      Минимальные локальные стили: подсветка карточки, индикатор сети.
+      Inline-стили лежат прямо в HTML, чтобы офлайн-загрузка из кэша
+      выглядела точно так же, как онлайн (никаких отдельных запросов).
+    -->
+    <style>
+        body { padding: 24px; }
+        h1 { margin-bottom: 8px; }
+
+        /* Индикатор подключения к сети (online/offline) */
+        #network-status {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            margin-bottom: 16px;
+        }
+        #network-status.online  { background: #d4edda; color: #155724; }
+        #network-status.offline { background: #f8d7da; color: #721c24; }
+
+        /* Список заметок */
+        #notes-list { list-style: none; padding: 0; }
+        #notes-list li {
+            background: #f7f7f7;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        #notes-list li .meta { color: #888; font-size: 0.8rem; }
+
+        /* Кнопка удаления внутри заметки */
+        .delete-btn {
+            background: transparent;
+            border: 1px solid #c00;
+            color: #c00;
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .delete-btn:hover { background: #c00; color: #fff; }
+    </style>
+</head>
+
+<body>
+    <h1>Заметки — офлайн-приложение</h1>
+
+    <!--
+      Индикатор сети. JS меняет текст и класс по событиям online / offline.
+      Это демонстрирует студенту, что приложение «знает» про офлайн.
+    -->
+    <p>
+        Состояние сети:
+        <span id="network-status" class="online">проверяется…</span>
+    </p>
+
+    <!--
+      Форма добавления заметки.
+      - id="note-form" — на него вешаем submit-обработчик.
+      - <input required> — простая HTML5-валидация (нельзя отправить пустую заметку).
+      - autocomplete="off" — чтобы браузер не подставлял старые значения и
+        не «портил» демонстрацию.
+    -->
+    <form id="note-form" class="row" autocomplete="off">
+        <input
+            class="col-9"
+            type="text"
+            id="note-input"
+            placeholder="Введите заметку и нажмите «Добавить»"
+            required
+        >
+        <button class="col-3" type="submit">Добавить</button>
+    </form>
+
+    <!-- Сюда JS отрисовывает заметки. Изначально пусто. -->
+    <ul id="notes-list"></ul>
+
+    <!--
+      Пояснение для студента (видно прямо на странице — удобно для отчёта).
+      Подскажет, как проверить работу Service Worker:
+        DevTools (F12) → Application → Service Workers / Cache Storage.
+    -->
+    <details style="margin-top: 24px;">
+        <summary>Как проверить, что Service Worker работает</summary>
+        <ol>
+            <li>Откройте DevTools (F12) → вкладка <b>Application</b>.</li>
+            <li>В разделе <b>Service Workers</b> должен быть активный воркер
+                <code>sw.js</code> со статусом «activated and is running».</li>
+            <li>В разделе <b>Cache Storage</b> увидите кэш
+                <code>notes-cache-v1</code> с файлами <code>/</code>,
+                <code>/index.html</code>, <code>/app.js</code>.</li>
+            <li>Во вкладке <b>Network</b> поставьте галочку <b>Offline</b>
+                и обновите страницу — она загрузится из кэша.</li>
+            <li>Добавление и просмотр заметок продолжат работать,
+                потому что данные хранятся в <code>localStorage</code>.</li>
+        </ol>
+    </details>
+
+    <!--
+      Подключение основного скрипта.
+      Загружается ПОСЛЕ разметки, чтобы document.getElementById сразу нашёл элементы.
+      Вместо этого можно было бы добавить атрибут defer:
+          <script src="app.js" defer></script>
+      и вынести тег в <head>.
+    -->
+    <script src="app.js"></script>
+</body>
+</html>
