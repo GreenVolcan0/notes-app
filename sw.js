@@ -38,7 +38,9 @@
 //   v1 — практика 13: первая версия.
 //   v2 — практика 14: добавлены manifest.json и иконки.
 //   v3 — практика 15: разделили оболочку и контент, добавили content/.
-const APP_SHELL_CACHE = 'app-shell-v3';
+//   v4 — практика 16: добавлены обработчики push и notificationclick,
+//        обновлены кнопки в index.html (enable-push / disable-push).
+const APP_SHELL_CACHE = 'app-shell-v4';
 
 // Версия динамического кэша. Здесь версия отдельная, потому что
 // /content/* меняется чаще, чем ASSETS, и его удобно инвалидировать
@@ -243,4 +245,94 @@ self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SKIP_WAITING') {
         self.skipWaiting();
     }
+});
+
+
+/* ---------- 9. push: входящие push-уведомления (практика 16) ---------- */
+//
+// Что происходит, когда сервер шлёт push:
+//   1) Сервер шифрует payload и шлёт POST на endpoint push-сервиса
+//      (FCM/Mozilla AutoPush) с подписью VAPID.
+//   2) Push-сервис передаёт зашифрованное сообщение браузеру по
+//      постоянному соединению (даже если вкладка/браузер закрыты).
+//   3) Браузер ПРОБУЖДАЕТ Service Worker (если он спал) и шлёт ему
+//      событие 'push' со свежей расшифрованной нагрузкой.
+//   4) В обработчике мы ОБЯЗАНЫ показать уведомление через
+//      self.registration.showNotification() — это требование браузеров
+//      (см. флаг userVisibleOnly: true при subscribe в app.js).
+//      Если уведомление не показать, браузер может в будущем отозвать
+//      подписку или начать показывать generic-уведомление сам.
+
+self.addEventListener('push', (event) => {
+    // event.data может быть null (например, тестовый push без payload).
+    // event.data.json() — удобный шорткат: парсит тело как JSON.
+    let data = { title: 'Новое уведомление', body: '' };
+    if (event.data) {
+        try {
+            data = event.data.json();
+        } catch {
+            // Если payload — не JSON, попробуем text().
+            data = { title: 'Новое уведомление', body: event.data.text() };
+        }
+    }
+
+    const options = {
+        body:  data.body  || '',
+        // icon — большая иконка, отображается слева в уведомлении.
+        // badge — маленькая монохромная иконка в статус-баре Android.
+        icon:  './icons/icon-192x192.png',
+        badge: './icons/icon-48x48.png',
+        // data — произвольный объект, доступный потом в notificationclick.
+        // Сюда можно положить URL, на который нужно перейти по клику.
+        data:  { url: './', original: data },
+        // tag — позволяет «схлопывать» уведомления в одно: если с тем же
+        // тегом придёт ещё одно уведомление, старое заменится новым,
+        // а не добавится рядом. Удобно для счётчиков, статусов и т.п.
+        tag:   'notes-task',
+        // renotify: true — даже если тег совпал, заставит браузер
+        // вибрировать/пиликать снова (а не молча обновить старое).
+        renotify: true,
+    };
+
+    // event.waitUntil — продлевает жизнь события, пока промис не завершится.
+    // Без него браузер может «уснуть» SW в середине показа уведомления.
+    event.waitUntil(
+        self.registration.showNotification(
+            data.title || 'Новое уведомление',
+            options
+        )
+    );
+});
+
+
+/* ---------- 10. notificationclick: клик по push (практика 16) ---------- */
+//
+// Когда пользователь кликает по уведомлению, браузер шлёт SW событие
+// 'notificationclick'. Хорошая практика — сфокусировать уже открытую
+// вкладку приложения или открыть новую, если ни одной нет.
+
+self.addEventListener('notificationclick', (event) => {
+    // Закрываем уведомление вручную (по умолчанию оно остаётся в шторке).
+    event.notification.close();
+
+    const targetUrl = (event.notification.data && event.notification.data.url) || './';
+
+    event.waitUntil(
+        // clients.matchAll возвращает все вкладки, контролируемые этим SW.
+        // Ищем уже открытую и фокусируем её — иначе открываем новое окно.
+        self.clients
+            .matchAll({ type: 'window', includeUncontrolled: true })
+            .then((clientList) => {
+                for (const client of clientList) {
+                    // Если такая вкладка уже есть — фокус на неё.
+                    if ('focus' in client) {
+                        return client.focus();
+                    }
+                }
+                // Иначе открываем новое окно.
+                if (self.clients.openWindow) {
+                    return self.clients.openWindow(targetUrl);
+                }
+            })
+    );
 });

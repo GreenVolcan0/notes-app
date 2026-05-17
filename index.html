@@ -130,6 +130,48 @@
             cursor: pointer;
         }
         .delete-btn:hover { background: #c00; color: #fff; }
+
+        /* ===== Практика 16: кнопки push и toast реал-тайм ===== */
+
+        /* Подвал с кнопками включить/отключить уведомления. */
+        footer.push-controls {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 1px solid #eee;
+            text-align: center;
+        }
+        footer.push-controls button {
+            font-size: 0.95rem;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            border: none;
+        }
+        #enable-push  { background: #28a745; color: #fff; }
+        #enable-push:hover  { background: #218838; }
+        #disable-push { background: #dc3545; color: #fff; }
+        #disable-push:hover { background: #c82333; }
+
+        /* Toast — всплывающее сообщение по событию taskAdded из WebSocket. */
+        .toast {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            background: #4285f4;
+            color: #fff;
+            padding: 12px 18px;
+            border-radius: 6px;
+            box-shadow: 0 2px 12px rgba(0,0,0,.18);
+            z-index: 1000;
+            opacity: 0;
+            transform: translateX(20px);
+            transition: opacity .25s, transform .25s;
+            max-width: 320px;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
     </style>
 </head>
 
@@ -173,7 +215,37 @@
         <p class="loading">Загрузка…</p>
     </main>
 
-    <!-- Подключение основного скрипта. -->
+    <!--
+      ===== App Shell: ПОДВАЛ — управление push-уведомлениями (практика 16) =====
+      Кнопки лежат в каркасе (а не в content/), потому что должны быть
+      видны на любой вкладке. Их состояние (видна/скрыта) меняет app.js
+      в зависимости от текущего PushManager.getSubscription().
+    -->
+    <footer class="push-controls">
+        <button id="enable-push"  type="button">Включить уведомления</button>
+        <button id="disable-push" type="button" style="display:none;">Отключить уведомления</button>
+        <p style="margin-top: 8px; color: #666; font-size: 0.85rem;">
+            При добавлении задачи во второй вкладке (или другим клиентом)
+            вы получите toast в реальном времени и системное push-уведомление.
+        </p>
+    </footer>
+
+    <!--
+      Клиентская библиотека Socket.IO. Версия должна совпадать (хотя бы по major)
+      с версией на сервере (см. notes-server/package.json — socket.io@4.x).
+      Грузим с CDN: для WebSocket-приложения сеть нужна по определению,
+      поэтому офлайн-кэширование этой библиотеки бессмысленно.
+
+      Альтернатива — подключение через '/socket.io/socket.io.js', которое
+      раздаёт сам сервер. Это работает только когда страница открыта
+      по адресу самого сервера (http://localhost:3001/), и не работает,
+      если запускать notes-app через `npm start` на 5173. Поэтому CDN надёжнее.
+    -->
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"
+            integrity="sha384-2huaZvOR9iDzHqslqwpR87isEmrfxqyWOF7hr7BY6KG0+hVKLoEXMPUJw3ynWuhO"
+            crossorigin="anonymous"></script>
+
+    <!-- Основной скрипт приложения. -->
     <script src="app.js"></script>
 </body>
 </html>
