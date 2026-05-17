@@ -1,10 +1,16 @@
 {
   "name": "notes-app",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "private": true,
-  "description": "Практика 13: офлайн-приложение «Заметки» с Service Worker",
+  "description": "Практики 13–15: офлайн-приложение «Заметки» — Service Worker, PWA, App Shell, HTTPS",
   "scripts": {
-    "//-start": "Запускает локальный HTTP-сервер на порту 5173. Service Worker не работает на file://, поэтому без HTTP не обойтись. Флаг -c-1 отключает HTTP-кеш самого сервера, чтобы он не мешал нашему собственному кэшированию через SW.",
-    "start": "npx --yes http-server . -p 5173 -c-1 -o"
+    "//-start":       "Запуск по обычному HTTP на 5173. Service Worker на localhost работает и без HTTPS, поэтому для быстрой проверки этого варианта достаточно. -c-1 отключает кэш самого http-server, чтобы он не мешал нашему собственному SW-кэшированию.",
+    "start": "npx --yes http-server . -p 5173 -c-1 -o",
+
+    "//-cert":        "Сгенерировать localhost.pem и localhost-key.pem в КОРНЕ репозитория. Использует mkcert (если установлен — без предупреждения), иначе openssl с самоподписанным сертификатом. Файлы исключены через .gitignore.",
+    "cert": "bash scripts/generate-cert.sh",
+
+    "//-start:https": "Запуск по HTTPS на 3000 (как в методичке). Перед первым запуском выполните `npm run cert`. Ключи лежат на уровень выше (../localhost*.pem) — в корне репозитория, чтобы можно было использовать их и для других экспериментов.",
+    "start:https": "npx --yes http-server . -S -C ../localhost.pem -K ../localhost-key.pem -p 3000 -c-1 -o"
   }
 }

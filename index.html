@@ -1,50 +1,115 @@
 <!DOCTYPE html>
+<!--
+  =====================================================================
+  Практическое занятие №15. App Shell + HTTPS.
+  Файл index.html — это «оболочка» (App Shell) приложения «Заметки».
+  =====================================================================
 
+  Что такое App Shell:
+    Минимальный набор HTML/CSS/JS, в котором есть только КАРКАС интерфейса —
+    шапка, навигация, пустой контейнер. Реальный контент (формы, списки,
+    статьи) подгружается отдельно через fetch и вставляется в контейнер.
+
+  Зачем разделять:
+    1) Оболочка кэшируется один раз через Service Worker и потом грузится
+       МГНОВЕННО даже на медленной сети — пользователь сразу видит интерфейс.
+    2) Контент остаётся свежим (Network First в SW): обновили текст
+       страницы «О приложении» — пользователь увидит правки, не дожидаясь
+       нового деплоя оболочки.
+    3) Структура напоминает SPA, но без тяжёлого фреймворка.
+
+  Что в этом файле:
+    - <head>: метаданные, манифест, метатеги PWA из практики 14.
+    - <body>: только КАРКАС:
+        <header> с заголовком и навигацией (две кнопки),
+        <main id="app-content"> — пустой контейнер для динамики.
+    - В конце <script src="app.js"> — он и подгружает контент через fetch.
+-->
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Заметки — PWA (практика 13–14)</title>
+    <title>Заметки — App Shell + HTTPS (практика 13–15)</title>
 
-      <link rel="manifest"> — главная связь между HTML и manifest.json.
-      Браузер прочитает этот JSON и узнает: имя приложения, иконки,
-      цвета, режим запуска. Без этой строки PWA «не соберётся»,
-      даже если manifest.json существует.
-    -->
+    <!-- =========================================================
+         БЛОК PWA: подключение Web App Manifest и метатеги
+         (всё это пришло из практики 14, не меняется в практике 15).
+         ========================================================= -->
     <link rel="manifest" href="./manifest.json">
-
     <meta name="theme-color" content="#4285f4">
-
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-
     <meta name="apple-mobile-web-app-title" content="Заметки">
-
     <link rel="apple-touch-icon" href="./icons/icon-152x152.png">
-
     <link rel="icon" type="image/png" sizes="32x32" href="./icons/icon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./icons/icon-16x16.png">
 
+    <!--
+      Внешний CSS-фреймворк chota. Лежит на CDN unpkg.com и НЕ кэшируется
+      нашим Service Worker (мы пропускаем cross-origin запросы в sw.js,
+      см. условие `if (url.origin !== location.origin) return`).
+      Для простоты учебного проекта — это нормально: офлайн страница
+      грузится без оформления (но всё функционально).
+    -->
     <link rel="stylesheet" href="https://unpkg.com/chota@latest">
 
+    <!--
+      Локальные стили оболочки. Inline, чтобы не делать лишний запрос
+      и чтобы оболочка выглядела одинаково и онлайн, и офлайн.
+    -->
     <style>
-        body { padding: 24px; }
-        h1 { margin-bottom: 8px; }
+        body { padding: 24px; max-width: 900px; margin: 0 auto; }
 
+        /* Шапка приложения — часть App Shell. */
+        header h1 { margin-bottom: 0.5rem; line-height: 1.2; }
+        header .subtitle { color: #666; font-size: 0.9rem; margin-bottom: 1rem; }
+
+        /* Навигация — две кнопки-вкладки. */
+        nav.tabs {
+            display: flex;
+            gap: 8px;
+            border-bottom: 2px solid #eee;
+            margin-bottom: 1rem;
+        }
+        nav.tabs button {
+            flex: 1;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            padding: 10px 16px;
+            font-size: 1rem;
+            cursor: pointer;
+            color: #555;
+            margin-bottom: -2px;     /* чтобы активная линия села на нижнюю границу nav */
+            transition: color 0.15s, border-color 0.15s;
+        }
+        nav.tabs button:hover { color: #4285f4; }
+        nav.tabs button.active {
+            color: #4285f4;
+            border-bottom-color: #4285f4;
+            font-weight: 600;
+        }
+
+        /* Индикатор сети и индикатор загрузки контента. */
         #network-status {
             display: inline-block;
             padding: 4px 10px;
             border-radius: 12px;
             font-size: 0.85rem;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
         #network-status.online  { background: #d4edda; color: #155724; }
         #network-status.offline { background: #f8d7da; color: #721c24; }
 
-        #notes-list { list-style: none; padding: 0; }
+        /* «Скелетон» для контейнера, пока fetch не выполнится. */
+        #app-content .loading {
+            text-align: center;
+            color: #999;
+            padding: 2rem 0;
+        }
+
+        /* Карточки заметок (стилизуем <li>, который рисует initNotes). */
         #notes-list li {
             background: #f7f7f7;
             border-radius: 6px;
@@ -56,7 +121,6 @@
             gap: 12px;
         }
         #notes-list li .meta { color: #888; font-size: 0.8rem; }
-
         .delete-btn {
             background: transparent;
             border: 1px solid #c00;
@@ -70,43 +134,46 @@
 </head>
 
 <body>
-    <h1>Заметки — офлайн-приложение</h1>
+    <!--
+      ===== App Shell: ШАПКА + НАВИГАЦИЯ =====
+      Этот HTML кэшируется при install Service Worker и больше никогда
+      не перезагружается с сервера, пока не обновим CACHE_VERSION в sw.js.
+    -->
+    <header>
+        <h1>«Заметки» — PWA с App Shell</h1>
+        <p class="subtitle">
+            Каркас грузится из кэша мгновенно, контент — через fetch (Network First).
+        </p>
 
-    <p>
-        Состояние сети:
-        <span id="network-status" class="online">проверяется…</span>
-    </p>
+        <!-- Индикатор сети, обновляется в app.js по событиям online/offline. -->
+        <p>
+            Состояние сети:
+            <span id="network-status" class="online">проверяется…</span>
+        </p>
 
-    <form id="note-form" class="row" autocomplete="off">
-        <input
-            class="col-9"
-            type="text"
-            id="note-input"
-            placeholder="Введите заметку и нажмите «Добавить»"
-            required
-        >
-        <button class="col-3" type="submit">Добавить</button>
-    </form>
+        <!--
+          Навигация по фрагментам. Кнопки имеют data-page вместо href —
+          мы обрабатываем клик в JS, а не делаем настоящий переход.
+          Это позволяет менять только содержимое <main>, не перезагружая
+          оболочку.
+        -->
+        <nav class="tabs" role="tablist">
+            <button id="home-btn"  class="active" data-page="home">Главная</button>
+            <button id="about-btn"                data-page="about">О приложении</button>
+        </nav>
+    </header>
 
+    <!--
+      ===== App Shell: КОНТЕЙНЕР для динамического контента =====
+      Сюда app.js загружает фрагменты из ./content/home.html
+      и ./content/about.html через fetch + innerHTML.
+      Изначально показываем «скелетон» / индикатор загрузки.
+    -->
+    <main id="app-content">
+        <p class="loading">Загрузка…</p>
+    </main>
 
-    <ul id="notes-list"></ul>
-
-    <details style="margin-top: 24px;">
-        <summary>Как проверить, что Service Worker работает</summary>
-        <ol>
-            <li>Откройте DevTools (F12) → вкладка <b>Application</b>.</li>
-            <li>В разделе <b>Service Workers</b> должен быть активный воркер
-                <code>sw.js</code> со статусом «activated and is running».</li>
-            <li>В разделе <b>Cache Storage</b> увидите кэш
-                <code>notes-cache-v1</code> с файлами <code>/</code>,
-                <code>/index.html</code>, <code>/app.js</code>.</li>
-            <li>Во вкладке <b>Network</b> поставьте галочку <b>Offline</b>
-                и обновите страницу — она загрузится из кэша.</li>
-            <li>Добавление и просмотр заметок продолжат работать,
-                потому что данные хранятся в <code>localStorage</code>.</li>
-        </ol>
-    </details>
-
+    <!-- Подключение основного скрипта. -->
     <script src="app.js"></script>
 </body>
 </html>
