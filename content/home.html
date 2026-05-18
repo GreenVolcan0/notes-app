@@ -1,37 +1,6 @@
-<!--
-  =====================================================================
-  content/home.html — фрагмент «Главной» страницы App Shell.
-  Практика №15.
-  =====================================================================
-
-  Это НЕ полноценный HTML-документ, а ФРАГМЕНТ разметки.
-  В нём нет <html>, <head>, <body> — только то, что подставится
-  внутрь <main id="app-content"> в index.html (через innerHTML).
-
-  Архитектура App Shell разделяет приложение на:
-    1) ОБОЛОЧКУ (index.html) — каркас (header + nav + контейнер),
-       кэшируется один раз и грузится мгновенно из кэша.
-    2) ДИНАМИЧЕСКИЙ КОНТЕНТ (этот файл) — подгружается через fetch,
-       свежий из сети (Network First), офлайн — из кэша.
-
-  Чем это лучше, чем класть всё в index.html:
-    - Каркас стабилен, его не нужно перерисовывать при «навигации».
-    - Контент можно обновлять отдельно от оболочки.
-    - Появляется ощущение мгновенной отзывчивости (как в нативных приложениях):
-      сразу видим шапку и меню, а в контейнере — лоадер или последний кэш.
--->
-
 <div class="home-content">
     <h2 style="text-align: center;">Добавить заметку</h2>
 
-    <!--
-      Форма теперь — часть ДИНАМИЧЕСКОГО фрагмента.
-      Это значит: каждый раз, когда пользователь нажимает «Главная»,
-      в DOM появляются НОВЫЕ <input>, <button>, <ul>. Старые удаляются
-      вместе с innerHTML. Поэтому в app.js функция initNotes()
-      вызывается КАЖДЫЙ раз после загрузки фрагмента — она заново
-      находит элементы и навешивает обработчики.
-    -->
     <form id="note-form" class="row" autocomplete="off">
         <input
             class="col-9"
@@ -43,12 +12,30 @@
         <button class="col-3 button primary" type="submit">Добавить</button>
     </form>
 
+    <form id="reminder-form" class="row" autocomplete="off" style="margin-top: 1rem;">
+        <input
+            class="col-5"
+            type="text"
+            id="reminder-text"
+            placeholder="Текст напоминания"
+            required
+        >
+        <input
+            class="col-4"
+            type="datetime-local"
+            id="reminder-time"
+            required
+        >
+        <button class="col-3 button success" type="submit">+ Напоминание</button>
+    </form>
+
     <h2 style="text-align: center; margin-top: 2rem;">Список заметок</h2>
 
-    <!-- Сюда initNotes() из app.js рендерит сохранённые заметки -->
     <ul id="notes-list" style="list-style: none; padding-left: 0;"></ul>
 
     <p class="text-light" style="margin-top: 2rem; font-size: 0.85rem;">
-        Заметки хранятся в <code>localStorage</code> вашего браузера и доступны офлайн.
+        Заметки хранятся в <code>localStorage</code>. Напоминания планируются
+        на сервере через <code>setTimeout</code>. По push-уведомлению можно
+        нажать «Отложить на 5 минут» — сервер перенесёт напоминание.
     </p>
 </div>

@@ -1,40 +1,11 @@
 <!DOCTYPE html>
-<!--
-  =====================================================================
-  Практическое занятие №15. App Shell + HTTPS.
-  Файл index.html — это «оболочка» (App Shell) приложения «Заметки».
-  =====================================================================
 
-  Что такое App Shell:
-    Минимальный набор HTML/CSS/JS, в котором есть только КАРКАС интерфейса —
-    шапка, навигация, пустой контейнер. Реальный контент (формы, списки,
-    статьи) подгружается отдельно через fetch и вставляется в контейнер.
-
-  Зачем разделять:
-    1) Оболочка кэшируется один раз через Service Worker и потом грузится
-       МГНОВЕННО даже на медленной сети — пользователь сразу видит интерфейс.
-    2) Контент остаётся свежим (Network First в SW): обновили текст
-       страницы «О приложении» — пользователь увидит правки, не дожидаясь
-       нового деплоя оболочки.
-    3) Структура напоминает SPA, но без тяжёлого фреймворка.
-
-  Что в этом файле:
-    - <head>: метаданные, манифест, метатеги PWA из практики 14.
-    - <body>: только КАРКАС:
-        <header> с заголовком и навигацией (две кнопки),
-        <main id="app-content"> — пустой контейнер для динамики.
-    - В конце <script src="app.js"> — он и подгружает контент через fetch.
--->
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Заметки — App Shell + HTTPS (практика 13–15)</title>
 
-    <!-- =========================================================
-         БЛОК PWA: подключение Web App Manifest и метатеги
-         (всё это пришло из практики 14, не меняется в практике 15).
-         ========================================================= -->
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#4285f4">
     <meta name="mobile-web-app-capable" content="yes">
@@ -45,19 +16,8 @@
     <link rel="icon" type="image/png" sizes="32x32" href="./icons/icon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="./icons/icon-16x16.png">
 
-    <!--
-      Внешний CSS-фреймворк chota. Лежит на CDN unpkg.com и НЕ кэшируется
-      нашим Service Worker (мы пропускаем cross-origin запросы в sw.js,
-      см. условие `if (url.origin !== location.origin) return`).
-      Для простоты учебного проекта — это нормально: офлайн страница
-      грузится без оформления (но всё функционально).
-    -->
     <link rel="stylesheet" href="https://unpkg.com/chota@latest">
 
-    <!--
-      Локальные стили оболочки. Inline, чтобы не делать лишний запрос
-      и чтобы оболочка выглядела одинаково и онлайн, и офлайн.
-    -->
     <style>
         body { padding: 24px; max-width: 900px; margin: 0 auto; }
 
@@ -121,6 +81,18 @@
             gap: 12px;
         }
         #notes-list li .meta { color: #888; font-size: 0.8rem; }
+
+        /* Бейдж напоминания (практика 17): подсветим заметки с reminder. */
+        .reminder-badge {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 2px 8px;
+            background: #fff3cd;
+            color: #7a5b00;
+            border: 1px solid #ffe9a0;
+            border-radius: 12px;
+            font-size: 0.8rem;
+        }
         .delete-btn {
             background: transparent;
             border: 1px solid #c00;
@@ -176,11 +148,6 @@
 </head>
 
 <body>
-    <!--
-      ===== App Shell: ШАПКА + НАВИГАЦИЯ =====
-      Этот HTML кэшируется при install Service Worker и больше никогда
-      не перезагружается с сервера, пока не обновим CACHE_VERSION в sw.js.
-    -->
     <header>
         <h1>«Заметки» — PWA с App Shell</h1>
         <p class="subtitle">
@@ -192,35 +159,16 @@
             Состояние сети:
             <span id="network-status" class="online">проверяется…</span>
         </p>
-
-        <!--
-          Навигация по фрагментам. Кнопки имеют data-page вместо href —
-          мы обрабатываем клик в JS, а не делаем настоящий переход.
-          Это позволяет менять только содержимое <main>, не перезагружая
-          оболочку.
-        -->
         <nav class="tabs" role="tablist">
             <button id="home-btn"  class="active" data-page="home">Главная</button>
             <button id="about-btn"                data-page="about">О приложении</button>
         </nav>
     </header>
 
-    <!--
-      ===== App Shell: КОНТЕЙНЕР для динамического контента =====
-      Сюда app.js загружает фрагменты из ./content/home.html
-      и ./content/about.html через fetch + innerHTML.
-      Изначально показываем «скелетон» / индикатор загрузки.
-    -->
     <main id="app-content">
         <p class="loading">Загрузка…</p>
     </main>
 
-    <!--
-      ===== App Shell: ПОДВАЛ — управление push-уведомлениями (практика 16) =====
-      Кнопки лежат в каркасе (а не в content/), потому что должны быть
-      видны на любой вкладке. Их состояние (видна/скрыта) меняет app.js
-      в зависимости от текущего PushManager.getSubscription().
-    -->
     <footer class="push-controls">
         <button id="enable-push"  type="button">Включить уведомления</button>
         <button id="disable-push" type="button" style="display:none;">Отключить уведомления</button>
@@ -230,17 +178,6 @@
         </p>
     </footer>
 
-    <!--
-      Клиентская библиотека Socket.IO. Версия должна совпадать (хотя бы по major)
-      с версией на сервере (см. notes-server/package.json — socket.io@4.x).
-      Грузим с CDN: для WebSocket-приложения сеть нужна по определению,
-      поэтому офлайн-кэширование этой библиотеки бессмысленно.
-
-      Альтернатива — подключение через '/socket.io/socket.io.js', которое
-      раздаёт сам сервер. Это работает только когда страница открыта
-      по адресу самого сервера (http://localhost:3001/), и не работает,
-      если запускать notes-app через `npm start` на 5173. Поэтому CDN надёжнее.
-    -->
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"
             integrity="sha384-2huaZvOR9iDzHqslqwpR87isEmrfxqyWOF7hr7BY6KG0+hVKLoEXMPUJw3ynWuhO"
             crossorigin="anonymous"></script>

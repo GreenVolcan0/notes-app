@@ -1,41 +1,6 @@
-/* =====================================================================
- * app.js — клиентская логика «Заметок».
- * Практические занятия 13–16. App Shell + WebSocket + Web Push.
- * =====================================================================
- *
- * Слои этого файла:
- *   1) АДРЕС СЕРВЕРА: автоопределение, чтобы код работал и при запуске
- *      через notes-server (один origin), и через `npm start` notes-app
- *      (разные origin — нужен абсолютный URL).
- *   2) РОУТИНГ App Shell: переключение фрагментов через fetch.
- *   3) ЗАМЕТКИ: localStorage + DOM-инициализация после загрузки 'home'.
- *   4) ИНДИКАТОР сети, регистрация Service Worker.
- *   5) WebSocket (Socket.IO): подключение, эмит newTask, приём taskAdded.
- *   6) PUSH-уведомления: VAPID public key с сервера, subscribeToPush /
- *      unsubscribeFromPush через PushManager, кнопки enable/disable.
- *
- * Что нужно знать на экзамене:
- *   - WebSocket — постоянное двустороннее соединение поверх TCP. Сервер
- *     может отправить данные клиенту в любой момент без запроса.
- *   - Socket.IO — обёртка над WebSocket с авто-reconnect, fallback'ом
- *     на long-polling и системой именованных событий (emit/on).
- *   - Push API — отдельный механизм: уведомление приходит, даже когда
- *     вкладка/браузер закрыты. Браузер пробуждает Service Worker,
- *     тот через self.registration.showNotification() рисует уведомление.
- *   - VAPID — стандарт идентификации сервера в push-сервисах. Пара
- *     EC-ключей P-256, публичный передаётся клиенту, приватный — секрет.
- * ===================================================================== */
-
-
-/* ---------- 1. Адрес сервера ---------- */
-//
-// Если страница открыта через сам notes-server (порт 3001) —
-// origin совпадает, можно использовать пустую строку (относительные URL).
-// Если открыта через `npm start` notes-app (5173) — нужен явный
-// http://localhost:3001, иначе Socket.IO подключится не туда.
 const SERVER_URL = (location.port === '3001' || location.hostname === '')
-    ? ''                              // тот же origin
-    : 'http://localhost:3001';        // dev-режим: клиент и сервер на разных портах
+    ? ''                              
+    : 'http://localhost:3001';       
 
 
 /* ---------- 2. DOM-элементы оболочки ---------- */
@@ -86,7 +51,12 @@ const STORAGE_KEY = 'notes';
 function initNotes() {
     const form  = document.getElementById('note-form');
     const input = document.getElementById('note-input');
-    const list  = document.getElementById('notes-list');
+
+    const reminderForm = document.getElementById('reminder-form');
+    const reminderText = document.getElementById('reminder-text');
+    const reminderTime = document.getElementById('reminder-time');
+
+    const list = document.getElementById('notes-list');
     if (!form || !input || !list) return;
 
     const getNotes  = () => {
@@ -101,15 +71,21 @@ function initNotes() {
             list.innerHTML = '<li><i>Пока нет заметок. Добавьте первую сверху ↑</i></li>';
             return;
         }
-        list.innerHTML = notes.map(note => `
-            <li data-id="${note.id}">
-                <span>
-                    ${escapeHtml(note.text)}
-                    <span class="meta"> — ${formatDate(note.createdAt)}</span>
-                </span>
-                <button class="delete-btn" data-id="${note.id}">Удалить</button>
-            </li>
-        `).join('');
+        list.innerHTML = notes.map(note => {
+            const reminderInfo = note.reminder
+                ? `<span class="reminder-badge">🔔 ${new Date(note.reminder).toLocaleString('ru-RU')}</span>`
+                : '';
+            return `
+                <li data-id="${note.id}">
+                    <span>
+                        ${escapeHtml(note.text)}
+                        <span class="meta"> — ${formatDate(note.createdAt)}</span>
+                        ${reminderInfo}
+                    </span>
+                    <button class="delete-btn" data-id="${note.id}">Удалить</button>
+                </li>
+            `;
+        }).join('');
     }
 
     function escapeHtml(s) {
@@ -121,31 +97,65 @@ function initNotes() {
         return iso ? new Date(iso).toLocaleString('ru-RU') : '';
     }
 
+    /**
+     * Универсальное добавление заметки.
+     * @param {string} text Содержимое заметки.
+     * @param {number|null} reminderTimestamp UNIX-ms или null, если без напоминания.
+     */
+    function addNote(text, reminderTimestamp = null) {
+        const note = {
+            id: Date.now(),                       // используем как уникальный id
+            text,
+            createdAt: new Date().toISOString(),
+            reminder: reminderTimestamp || null,  // null = обычная заметка
+        };
+
+        const notes = getNotes();
+        notes.push(note);
+        saveNotes(notes);
+        render();
+
+        if (socket && socket.connected) {
+            if (reminderTimestamp) {
+                socket.emit('newReminder', {
+                    id: note.id,
+                    text,
+                    reminderTime: reminderTimestamp,
+                });
+            } else {
+                socket.emit('newTask', { text, timestamp: note.id });
+            }
+        }
+    }
+
+    // ---- Обычная заметка ----
     form.addEventListener('submit', (e) => {
         e.preventDefault();
         const text = input.value.trim();
         if (!text) return;
 
-        const note = {
-            id: Date.now(),
-            text,
-            createdAt: new Date().toISOString(),
-        };
-
-        // Сохраняем локально (как и раньше — это для офлайна).
-        const notes = getNotes();
-        notes.push(note);
-        saveNotes(notes);
+        addNote(text);
         input.value = '';
         input.focus();
-        render();
+    });
 
-        // Практика 16: рассылаем событие через WebSocket всем клиентам сервера.
-        // Если socket ещё не подключился — ничего не отправится. Это нормально:
-        // приложение продолжает работать в офлайне.
-        if (socket && socket.connected) {
-            socket.emit('newTask', { text, timestamp: note.id });
+    // ---- Заметка с напоминанием (практика 17) ----
+    reminderForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = reminderText.value.trim();
+        const datetime = reminderTime.value;          // строка типа '2026-05-10T17:30'
+        if (!text || !datetime) return;
+
+        const timestamp = new Date(datetime).getTime();
+
+        if (timestamp <= Date.now()) {
+            alert('Дата напоминания должна быть в будущем.');
+            return;
         }
+
+        addNote(text, timestamp);
+        reminderText.value = '';
+        reminderTime.value = '';
     });
 
     list.addEventListener('click', (e) => {
@@ -177,19 +187,9 @@ window.addEventListener('offline', updateNetworkStatus);
 
 
 /* ---------- 6. WebSocket / Socket.IO (практика 16) ---------- */
-//
-// `io` — глобальная функция из подключённой в index.html библиотеки
-// https://cdn.socket.io/4.7.5/socket.io.min.js. Если CDN недоступен,
-// `typeof io` будет 'undefined' — в этом случае работаем без сокета.
-
 let socket = null;
 
 if (typeof io === 'function') {
-    // Подключение к серверу. Передаём:
-    //   - SERVER_URL: куда подключаться;
-    //   - { autoConnect: true }: подключиться сразу (по умолчанию true);
-    //   - reconnection: true (по умолчанию) — если соединение оборвётся,
-    //     Socket.IO будет пытаться переподключиться экспоненциально.
     socket = io(SERVER_URL || undefined);
 
     socket.on('connect', () => {
@@ -199,13 +199,9 @@ if (typeof io === 'function') {
         console.log('[ws] disconnected:', reason);
     });
     socket.on('connect_error', (err) => {
-        // Самая частая причина — сервер не запущен. Не валим приложение.
         console.warn('[ws] connect_error:', err.message);
     });
 
-    // Главное событие: задачу добавил кто-то (мы или другой клиент).
-    // Сервер использует io.emit (методичка), поэтому мы тоже получим
-    // СВОЁ собственное событие — это нормально, для отладки даже полезно.
     socket.on('taskAdded', (task) => {
         console.log('[ws] taskAdded:', task);
         showToast(`Новая задача: ${task && task.text ? task.text : '...'}`);
@@ -223,12 +219,8 @@ function showToast(message) {
     toast.textContent = message;
     document.body.appendChild(toast);
 
-    // requestAnimationFrame, чтобы анимация transition плавно сработала:
-    // элемент сначала вставляется без класса .show, на следующем кадре
-    // получает .show, и transition плавно перемещает его на место.
     requestAnimationFrame(() => toast.classList.add('show'));
 
-    // Через 3 секунды убираем класс, потом окончательно удаляем из DOM.
     setTimeout(() => {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
@@ -237,12 +229,6 @@ function showToast(message) {
 
 
 /* ---------- 8. PUSH: вспомогательная функция кодирования ключа ---------- */
-//
-// PushManager.subscribe ожидает applicationServerKey как Uint8Array,
-// а сервер хранит ключ в base64-url (без padding). Эта функция —
-// стандартный способ перевести его в нужный формат.
-// Подробнее: https://developer.mozilla.org/.../PushManager/subscribe
-
 function urlBase64ToUint8Array(base64String) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
     const base64  = (base64String + padding)
@@ -287,18 +273,13 @@ async function subscribeToPush() {
         return;
     }
 
-    // Дожидаемся, пока SW активен — без него pushManager.subscribe() упадёт.
     const registration = await navigator.serviceWorker.ready;
 
-    // userVisibleOnly: true — обязательное требование браузеров: каждое push
-    // должно сопровождаться видимым уведомлением (нельзя «тихие» push'ы
-    // для трекинга). Без этого Chrome выдаст ошибку при subscribe.
     const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
     });
 
-    // Отдаём подписку серверу — он сохранит её в своём хранилище.
     await fetch(`${SERVER_URL}/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -315,8 +296,6 @@ async function unsubscribeFromPush() {
     const subscription = await registration.pushManager.getSubscription();
     if (!subscription) return;
 
-    // Сначала уведомляем сервер, потом отписываемся в браузере.
-    // Если сервер недоступен — всё равно отписываемся локально.
     try {
         await fetch(`${SERVER_URL}/unsubscribe`, {
             method: 'POST',
@@ -340,7 +319,6 @@ if ('serviceWorker' in navigator) {
             const registration = await navigator.serviceWorker.register('./sw.js');
             console.log('[app] Service Worker зарегистрирован. Scope:', registration.scope);
 
-            // Когда SW готов — показываем правильную кнопку: уже подписан → disable, иначе enable.
             await navigator.serviceWorker.ready;
             const existing = await registration.pushManager.getSubscription();
             updatePushButtonsState(Boolean(existing));
@@ -360,7 +338,6 @@ function updatePushButtonsState(isSubscribed) {
 
 if (enablePushBtn) {
     enablePushBtn.addEventListener('click', async () => {
-        // Notification.permission: 'default' (не спрашивали), 'granted' (можно), 'denied' (нельзя).
         if (Notification.permission === 'denied') {
             alert('Уведомления запрещены в настройках браузера. Разрешите их вручную.');
             return;
