@@ -1,16 +1,23 @@
 {
-  "name": "notes-app",
-  "version": "1.5.0",
+  "name": "notes-server",
+  "version": "1.0.0",
   "private": true,
-  "description": "Практики 13–15: офлайн-приложение «Заметки» — Service Worker, PWA, App Shell, HTTPS",
+  "description": "Серверная часть для практики 16: Express + Socket.IO + web-push. Раздаёт notes-app и обрабатывает push/WebSocket.",
+  "main": "server.js",
   "scripts": {
-    "//-start":       "Запуск по обычному HTTP на 5173. Service Worker на localhost работает и без HTTPS, поэтому для быстрой проверки этого варианта достаточно. -c-1 отключает кэш самого http-server, чтобы он не мешал нашему собственному SW-кэшированию.",
-    "start": "npx --yes http-server . -p 5173 -c-1 -o",
-
-    "//-cert":        "Сгенерировать localhost.pem и localhost-key.pem в КОРНЕ репозитория. Использует mkcert (если установлен — без предупреждения), иначе openssl с самоподписанным сертификатом. Файлы исключены через .gitignore.",
-    "cert": "bash scripts/generate-cert.sh",
-
-    "//-start:https": "Запуск по HTTPS на 3000 (как в методичке). Перед первым запуском выполните `npm run cert`. Ключи лежат на уровень выше (../localhost*.pem) — в корне репозитория, чтобы можно было использовать их и для других экспериментов.",
-    "start:https": "npx --yes http-server . -S -C ../localhost.pem -K ../localhost-key.pem -p 3000 -c-1 -o"
+    "//-start":  "Запуск сервера. Перед первым запуском выполнить `npm run vapid` чтобы создать .env с ключами.",
+    "start": "node server.js",
+    "//-dev":    "То же, но с авто-перезапуском при изменениях (Node 24 умеет --watch встроенно — внешние пакеты не нужны).",
+    "dev": "node --watch server.js",
+    "//-vapid":  "Сгенерировать пару VAPID-ключей и записать их в .env. Если .env уже есть, пишем в .env.new чтобы случайно не перезатереть рабочие ключи.",
+    "vapid": "node scripts/generate-vapid.js"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5",
+    "web-push": "^3.6.7"
   }
 }
